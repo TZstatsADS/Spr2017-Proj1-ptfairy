@@ -1,0 +1,47 @@
+---
+title: "R Notebook"
+output:
+  html_notebook: default
+  html_document: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+```{r}
+library(NLP)
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+library(dplyr)
+library(plyr)
+library(ggplot2)
+```
+
+```{r}
+InauguationDates <- read.table("InauguationDates.txt", sep="\t",fill=TRUE, header = TRUE)
+InaugurationInfo <- read.csv("InaugurationInfo.csv", fill=TRUE, header = TRUE, stringsAsFactors = FALSE)
+InauguationDates
+InaugurationInfo[, 5]  <- suppressWarnings(as.numeric(InaugurationInfo[, 5]))
+InaugurationInfo
+PartyWords <- ddply(InaugurationInfo, .(Party), summarize, Words = mean(Words, na.rm = TRUE))
+TermWords <- ddply(InaugurationInfo, .(Term), summarize, Words = mean(Words, na.rm = TRUE))
+PartyWords
+TermWords
+```
+
+```{r}
+Democratic <- filter(InaugurationInfo, Party == "Democratic")
+Democratic$President[Democratic$President == "Grover Cleveland - II"] <- "Grover Cleveland"
+Democratic$President[Democratic$President == "Grover Cleveland - I"] <- "Grover Cleveland"
+Democratic$President[Democratic$Term == 2] <- paste(Democratic$President[Democratic$Term == 2], "- II", sep = "")
+Democratic$President[Democratic$Term == 3] <- paste(Democratic$President[Democratic$Term == 3], "- III", sep = "")
+Democratic$President[Democratic$Term == 4] <- paste(Democratic$President[Democratic$Term == 3], "- IV", sep = "")
+Democratic
+ggplot(data = Democratic, aes(x = reorder(President, -Words), y = Words, fill = Words > mean(Words))) + geom_bar(stat = "identity") + geom_hline(aes(yintercept = mean(Words))) + theme(axis.text.x = element_text(angle = 45, hjust = 1)) + scale_fill_brewer() 
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).
