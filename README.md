@@ -8,7 +8,7 @@ This is the first and only *individual* (as opposed to *team*) this semester.
 
 Term: Spring 2017
 
-+ Projec title: From 1789 to 2017 - An R Notebook Data Story on presidential inaugural speeches
++ Projec title: From 1789 to 2017 - An R Notebook Data Story on Presidential Inaugural Speeches
 + This project is conducted by Xuanyu Xiao
 
 + Project summary: In this project, changes of presidential inaugural speeches from 1789 to 2017 will be analyzed. Time is the most important dimension in this project and the analysis was divided into four main part.
