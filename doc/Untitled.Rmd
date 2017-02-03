@@ -1,0 +1,412 @@
+---
+title: "From 1789 to 2017 - An R Notebook Data Story on presidential inaugural speeches"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+In this R Notebook, changes of presidential inaugural speeches from 1789 to 2017 will be analyzed. Time is the most important dimension in this project and the analysis was divided into four main part.
+
+#1. General analysis 
+Some general analysis is performed firstly according to the data which can be directly obtained. I made basic data cleaning and prepare the environment of the further analysis. 
+```{r, message=FALSE, warning=FALSE}
+packages.used=c("rvest", "tibble", "qdap", 
+                "sentimentr", "gplots", "dplyr",
+                "tm", "syuzhet", "factoextra", 
+                "beeswarm", "scales", "RColorBrewer",
+                "RANN", "topicmodels","openNLP","NLP",
+                "plyr","ggplot2","slam","reshape2",
+                "cluster","fpc","stringr","plotly","grid")
+
+# check packages that need to be installed.
+packages.needed=setdiff(packages.used, 
+                        intersect(installed.packages()[,1], 
+                                  packages.used))
+# install additional packages
+if(length(packages.needed)>0){
+  install.packages(packages.needed, dependencies = TRUE)
+}
+
+# load packages
+library("rvest")
+library("tibble")
+library("qdap")
+library("sentimentr")
+library("gplots")
+library("dplyr")
+library("syuzhet")
+library("factoextra")
+library("beeswarm")
+library("scales")
+library("RColorBrewer")
+library("RANN")
+library("tm")
+library("topicmodels")
+library("openNLP")
+library("NLP")
+library("plyr")
+library("ggplot2")
+library("slam")
+library("reshape2")
+library("cluster") 
+library("fpc")  
+library("stringr")
+library("plotly")
+library("grid")
+```
+This notebook was prepared with the following environmental settings.
+```{r}
+print(R.version)
+```
+
+```{r}
+# prepare datafram for given .txt and .csv files 
+InauguationDates <- read.table("../data/InauguationDates.txt", sep="\t",fill=TRUE, header = TRUE)
+InaugurationInfo <- read.csv("../data/InaugurationInfo.csv", fill=TRUE, header = TRUE, stringsAsFactors = FALSE)
+
+InaugurationInfo[, 5]  <- suppressWarnings(as.numeric(InaugurationInfo[, 5]))
+# add words of Trump's inaugural speeches
+InaugurationInfo$Words[58] = 1334
+
+# calculate the mean words of different Parties and different terms
+PartyWords <- ddply(InaugurationInfo, .(Party), summarize, Words = mean(Words, na.rm = TRUE))
+TermWords <- ddply(InaugurationInfo, .(Term), summarize, Words = mean(Words, na.rm = TRUE))
+PartyWords
+TermWords
+```
+According to the PartyWords data frame, the inaugural speeches' of Republican party is over 500 words more than Democratic's in average and the mean words of Democratic-Republican Party's is between Republican and Democratic. 
+
+Republican party focused more on serious government issues like diplomacy and military affairs which may need detailed explanation to get their political views accepted by the public. Democratic party concentrated more on internal issues like education and social welfare which are more familiar parts for the public. The Democratic-Republican Party combines the political creed of both Republican and Democratic party, so it is reasonable the mean words of inaugural speeches is between these two parties.
+```{r}
+# basic data cleaning
+Democratic <- filter(InaugurationInfo, Party == "Democratic")
+Democratic$President[Democratic$President == "Grover Cleveland - II"] <- "Grover Cleveland"
+Democratic$President[Democratic$President == "Grover Cleveland - I"] <- "Grover Cleveland"
+Democratic$President[Democratic$Term == 2] <- paste(Democratic$President[Democratic$Term == 2], "- II", sep = "")
+Democratic$President[Democratic$Term == 3] <- paste(Democratic$President[Democratic$Term == 3], "- III", sep = "")
+Democratic$President[Democratic$Term == 4] <- paste(Democratic$President[Democratic$Term == 4], "- IV", sep = "")
+
+Republican <- filter(InaugurationInfo, Party == "Republican" & Words != "NA")
+Republican$President[Republican$Term == 2] <- paste(Republican$President[Republican$Term == 2], "- II", sep = "")
+
+Democratic_Republican_Party <- filter(InaugurationInfo, Party == "Democratic-Republican Party")
+Democratic_Republican_Party$President[Democratic_Republican_Party$Term == 2] <- paste(Democratic_Republican_Party$President[Democratic_Republican_Party$Term == 2], "- II", sep = "")
+# Democratic
+D <- ggplot(data = Democratic, aes(x = reorder(President, -Words), y = Words, fill = Words > mean(Words))) + geom_bar(stat = "identity") + geom_hline(aes(yintercept = mean(Words))) + theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5)) + scale_fill_discrete(guide=FALSE) + labs(x = "Presidents") + ggtitle("Inauguration words of main parties")
+# Republican
+P <- ggplot(data = Republican, aes(x = reorder(President, -Words), y = Words, fill = Words > mean(Words))) + geom_bar(stat = "identity") + geom_hline(aes(yintercept = mean(Words))) + theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5)) + scale_fill_discrete(guide=FALSE) + labs(x = "Presidents")
+# Democratic_Republican_Party
+DP <- ggplot(data = Democratic_Republican_Party, aes(x = reorder(President, -Words), y = Words, fill = Words > mean(Words))) + geom_bar(stat = "identity") + geom_hline(aes(yintercept = mean(Words))) + theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 5)) + scale_fill_discrete(name="InaugurationWords", breaks=c("FALSE", "TRUE"),labels=c("Words < mean(Words)", "Words > mean(Words)")) + labs(x = "Presidents")
+
+```
+
+```{r, fig.height = 5, fig.width = 10, message=FALSE, warning=FALSE}
+#function to combine various plot in the same plot
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+multiplot(D, P, DP, cols=2)
+```
+
+
+
+
+
+"Only the short ones are remembered," president Richard Nixon once concluded after reading all the inaugurals. According to the barplot, more than half president addressed inaugural speeches with less words than the average. Even though short speeches are not always great. No inaugural speeches with too much words are remembered.  
+
+#2. Basic text mining - term frequency analysis
+```{r}
+cname <- file.path("../data/InauguralSpeeches/")
+filenames <- list.files("../data/InauguralSpeeches/",pattern="*.txt")
+docs <- Corpus(DirSource(cname))
+# remove potentially problematic symbols
+docs <- tm_map(docs,content_transformer(tolower))
+
+# remove stopwords
+docs <- tm_map(docs, removeWords, stopwords("english"))
+
+# remove other words which are thought less meaningful
+docs <- tm_map(docs, removeWords, c("can", "will", "shall", "american" ,"one", "must", "may", "country", "countries", "upon", "without", "government", "people", "need", "never", "men", "place"))
+
+# remove punctuation
+docs <- tm_map(docs, removePunctuation)
+ 
+# Strip digits
+docs <- tm_map(docs, removeNumbers)
+
+# remove whitespace
+docs <- tm_map(docs, stripWhitespace)
+
+# Stem document
+docs <- tm_map(docs, stemDocument)
+```
+
+```{r, fig.height = 5, fig.width = 8, message=FALSE, warning=FALSE}
+dtm <- DocumentTermMatrix(docs)  
+tdm <- TermDocumentMatrix(docs)
+rownames(dtm) <- filenames
+# Find the sum of words in each Document
+rowTotals <- apply(dtm , 1, sum)
+tdm.common = removeSparseTerms(tdm, 0.25)
+dtm.common = removeSparseTerms(dtm, 0.25)
+freq <- colSums(as.matrix(dtm))
+freq <- sort(colSums(as.matrix(dtm)), decreasing=TRUE)   
+# head(freq, 20)
+# findFreqTerms(dtm, lowfreq=100) 
+wf <- data.frame(word=names(freq), freq=freq)
+frequency <- ggplot(subset(wf, freq>150), aes(x = reorder(word, -freq), y = freq)) + geom_bar(stat="identity", fill ="#4682B4") + theme(axis.text.x=element_text(angle=45, hjust=1)) + labs(x = "terms") + ggtitle("Frequency of terms in inaugural speeches")
+frequency
+```
+
+
+
+The United States is the world's oldest surviving federation. It is a constitutional republic and representative democracy, "in which majority rule is tempered by minority rights protected by law". The government is regulated by a system of checks and balances defined by the U.S. Constitution, which serves as the country's supreme legal document. In the American federalist system, citizens are usually subject to three levels of government: federal, state, and local. 
+
+The high frenquency of terms like <span style="color:red">"nation", "state", "constitution", "law", "citizen"</span> are determined by the state nature of American. Many postive adjectives like <span style="color:red">"great", "new", "good"</span> also appear frequently, because inaugural speech is the first speech for the newly elected president to share his politics and future expectation. It must be encouraging and inspiring.
+
+```{r, fig.height = 10, fig.width = 10, message=FALSE, warning=FALSE}
+tdm.common = as.matrix(tdm.common)
+tdm.m = melt(tdm.common)
+tdm.m <- ddply(tdm.m, .(Docs), transform, rescale = rescale(value), stringsAsFactors = FALSE)
+
+# heatmap of term frequecy from 1789 to 2017
+Frequencyplot <- ggplot(tdm.m, aes(Docs, Terms)) + geom_tile(aes(fill = rescale), colour = "white") + scale_fill_gradient(low = "white", high = "steelblue") + theme(axis.text.x = element_text(angle = 75, hjust = 1, size = 12)) + ggtitle("Terms Frequency from 1789 to 2017") + theme(plot.title = element_text(lineheight=.10, face="bold"))
+Frequencyplot
+```
+
+
+
+
+
+
+
+The heatmap shows us the frequency change of some common used terms in inaugural speeches. There are several terms which worth analyzing：
+
+<span style="color:red">"world"</span>: "world" became frequently used in inaugural speeches from 1920s which marks the end of isolationism. The comprehensive national stength of America has grown significantly after the <span style="color:red">World War I</span> and international influence of America became more and more stronger. The term "world" appears 20 times in Clinton's inaugural speech indicating that America was persuing dominance of the world after the <span style="color:red">Collapse of the Soviet Union</span> 
+
+<span style="color:red">"work"</span>: "work" become frequently used in recent 30 years. This term is closely related to several <span style="color:red">Financial Crisis</span>. The term "work" appears 8 times in Obama's inaugural speech. It's quite reasonable becuase unemployment is definitely one of the biggest challenges for him. For the first speech to the public, he had to convice people he is capable of handling the unemployment.
+
+<span style="color:red">"state"</span>: "state" was frequently used in 1900s and seldom used in rencent 100 years of American history. Lincoln used "state" a lot in his first inaugural speech. Because of <span style="color:red">The Civil War</span>, contradiction between northern states and southern states became really hard to reconcile. He had to talk about the state right and natinal unity.
+
+<span style="color:red">"power"</span>: "power" was used 8 times by kennedy and he is one of the presidents who used this term mostly in inaugural speech. It is commonly considered that 1961 is the height of the <span style="color:red">Cold War</span> and nuclear war may break out at any moment. Emphasizing the "power" is not only a warning for Soviet Union, but also a guarantee for all the Ameican citizens that their government has the power to keep them safe.
+
+<span style="color:red">"peace"</span>: "peace" was mentioned a lot in Roosevert 4th inaugural speech(1949) and in both Nixon's inangural speech. These Three inaugural speeches may mark the two famous war in American history, <span style="color:red">The Word War II</span> and <span style="color:red">The Vitnam War</span>.People always appeal for what times lack and peace is so presious for Americans who have just pulled through The Word War II and were suffering in The Vitnam War.
+
+```{r, fig.height = 10, fig.width = 10, message=FALSE, warning=FALSE}
+d <- dist(t(dtm.common), method="euclidian")   
+kfit <- kmeans(d, 4)   
+cluster <- clusplot(as.matrix(d), kfit$cluster, color=T, shade=T, labels=2, lines=0)    
+```
+
+```{r, fig.height = 20, fig.width = 20, message=FALSE, warning=FALSE}
+World <- filter(tdm.m, Terms == "world")
+State <- filter(tdm.m, Terms == "state")
+Work <- filter(tdm.m, Terms == "work")
+Power <- filter(tdm.m, Terms == "power")
+Peace <- filter(tdm.m, Terms == "peac")
+Future <- filter(tdm.m, Terms == "futur")
+
+Futurer <- ggplot(Future, aes(x=Docs, y=value, group=1)) + geom_point() + theme(axis.text.x = element_text(angle = 75, hjust = 1, size = 10)) + geom_smooth(formula=y~x) + ggtitle("Frenquency of <Future> group3") + theme(plot.title = element_text(lineheight=.8, face="bold"))
+
+Worldr <- ggplot(World, aes(x=Docs, y=value, group=1)) + geom_point() + theme(axis.text.x = element_text(angle = 75, hjust = 1, size = 10)) + geom_smooth(formula=y~x) + ggtitle("Frenquency of <World> group1") + theme(plot.title = element_text(lineheight=.8, face="bold"))
+
+Stater <- ggplot(State, aes(x=Docs, y=value, group=1)) + geom_point() + theme(axis.text.x = element_text(angle = 75, hjust = 1, size = 10)) + geom_smooth(formula=y~x) +ggtitle("Frenquency of <State> group4") + theme(plot.title = element_text(lineheight=.8, face="bold"))
+
+Workr <- ggplot(Work, aes(x=Docs, y=value, group=1)) + geom_point() + theme(axis.text.x = element_text(angle = 75, hjust = 1, size = 10)) + geom_smooth(formula=y~x) + ggtitle("Frenquency of <Work> group3" ) + theme(plot.title = element_text(lineheight=.8, face="bold"))
+
+Powerr <- ggplot(Power, aes(x=Docs, y=value, group=1)) + geom_point() + theme(axis.text.x = element_text(angle = 75, hjust = 1, size = 10)) + geom_smooth(formula=y~x) + ggtitle("Frenquency of <Power> group4") + theme(plot.title = element_text(lineheight=.8, face="bold"))
+
+Peacer <- ggplot(Peace, aes(x=Docs, y=value, group=1)) + geom_point() + theme(axis.text.x = element_text(angle = 75, hjust = 1, size = 10)) + geom_smooth(formula=y~x) + ggtitle("Frenquency of <Peace> group1") + theme(plot.title = element_text(lineheight=.8, face="bold"))
+
+multiplot(Futurer, Worldr, Stater, Workr, Peacer, Powerr, cols=2)
+```
+In this part, I firstly clustered all the common used terms into four groups, then I did regression for randomly chosen 2 Terms of these groups. The plot above futher proved the usage of terms in inaugural speeches conforms to <span style="color:red">times</span>.
+
+A paper in *Theory and Practice in Language Studies* thought most of the American inaugural of speeches have the similar structure and can be divided into 8 moves: Salutation, Announcing entering upon office, Articulating sentiments on the occasion, Making pledges, Arousing patriotism in citizens, Announcing political principles to guide the new administration, Appealing to the audience, Resorting to religious power. Among them, Presenting the sound and correct political opinion is the most important part and quite related to the history backgroud.
+
+In general, the inaugural speeches may seem as the epitome of period.
+
+#3. Great inauguration? - verbs frequency analysis
+```{r, message=FALSE, warning=FALSE, fig.height = 10, fig.width = 10}
+# Change the corpus to data frame
+# tokenize the corpus
+myCorpusTokenized <- lapply(docs, scan_tokenizer)
+# concatenate tokens by document, create data frame
+Corpusdf <- data.frame(Text = sapply(myCorpusTokenized, paste, collapse = " "), stringsAsFactors = FALSE)
+Corpusdf <- cbind(InaugurationInfo, Corpusdf)
+Corpusdf$index <- seq(from = 1789, to = 2017, by = 4)
+
+acq <- Corpusdf$Text
+# function to tag terms with POS 
+tagPOS <- function(x, ...) {
+  s <- as.String(x)
+  word_token_annotator <- Maxent_Word_Token_Annotator()
+  a2 <- Annotation(1L, "sentence", 1L, nchar(s))
+  a2 <- annotate(s, word_token_annotator, a2)
+  a3 <- annotate(s, Maxent_POS_Tag_Annotator(), a2)
+  a3w <- a3[a3$type == "word"]
+  POStags <- unlist(lapply(a3w$features, `[[`, "POS"))
+  POStagged <- paste(sprintf("%s/%s", s[a3w], POStags), collapse = " ")
+  l <- list(POStags = POStags)
+  l <- as.character(l)
+}
+
+# ddply will change the order of column, adding index to keep the original order
+Corpusdfp <- ddply(Corpusdf, c("index"), summarise, TextProcessed = tagPOS(Text))
+
+# the verbs usage in inaugural speeches
+countV <- str_count(Corpusdfp$TextProcessed, "VB") + str_count(Corpusdfp$TextProcessed, "VBN") + str_count(Corpusdfp$TextProcessed, "VBP") + str_count(Corpusdfp$TextProcessed, "VBD")
+Corpusdf$VerbFrequency <- countV
+Corpusdf$ProcessedWords <- rowTotals
+Corpusdf$VerbPercentage <- countV/rowTotals 
+Corpusdf$President[Corpusdf$President == "Grover Cleveland - II"] <- "Grover Cleveland"
+Corpusdf$President[Corpusdf$President == "Grover Cleveland - I"] <- "Grover Cleveland"
+Corpusdf$President[Corpusdf$Term == 2] <- paste(Corpusdf$President[Corpusdf$Term == 2], "- II", sep = "")
+Corpusdf$President[Corpusdf$Term == 3] <- paste(Corpusdf$President[Corpusdf$Term == 3], "- III", sep = "")
+Corpusdf$President[Corpusdf$Term == 4] <- paste(Corpusdf$President[Corpusdf$Term == 4], "- IV", sep = "")
+
+# several best inaugural speeches and worst inaugural speeches were selected
+# best inaugural speeches(red):
+#           George Washington(1789), Thomas Jefferson(1801), Abraham Lincoln(1861), Abraham Lincoln(1865),
+#           Franklin D. Roosevelt(1933), John F. Kennedy(1961), Ronald Reagan(1981), Barack Obama(2009)
+# worst inaugural speeches(blue):
+#           John Adams(1797), Anderew Jackson(1829), William Henry Harrrison(1841), James Buchanan(1857),
+#           Richard Nixon(1969)
+# incumbent President(green): Donald Trump
+
+colors <- c('rgba(222,45,38,0.8)', 'rgba(204,204,204,1)', 'rgba(76,162,220,1)', 'rgba(222,45,38,0.8)', 
+            'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 
+            'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(76,162,220,1)', 'rgba(204,204,204,1)', 
+            'rgba(204,204,204,1)', 'rgba(76,162,220,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 
+            'rgba(204,204,204,1)', 'rgba(76,162,220,1)', 'rgba(222,45,38,0.8)', 'rgba(222,45,38,0.8)',
+            'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)',
+            'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)',
+            'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)',
+            'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)',
+            'rgba(222,45,38,0.8)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)',
+            'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(222,45,38,0.8)',
+            'rgba(204,204,204,1)', 'rgba(76,162,220,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)',
+            'rgba(222,45,38,0.8)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)',
+            'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(204,204,204,1)', 'rgba(222,45,38,0.8)',
+            'rgba(204,204,204,1)', 'rgba(176,251,70,1)')
+
+# Using bubble plot
+VP <- plot_ly(Corpusdf, x = ~index, y = ~VerbPercentage, text = ~President, type = 'scatter', mode = 'markers', marker = list(size = ~Words/100, opacity = 0.5, color = colors)) %>% layout(title = 'Great Inauguration?', xaxis = list(title = "Year", showgrid = TRUE), yaxis = list(showgrid = TRUE), shapes = list(list(type = "rect", fillcolor = "blue", line = list(color = "blue"), opacity = 0.1, x0 = 1789, x1 = 2020, xref = "x", y0 = 0.29, y1 = 0.32, yref = "y")))
+
+VP
+```
+
+
+
+As one of the most important parts of a sentence, verbs define meaning of sentences largely. Speeches with higher percentage of verbs often have short sentences and can deliver more informations. In addition people who use high percentage of verbs may be more likely to be thought as a <span style="color:red">Doer</span> rather than a <span style="color:red">Talker</span>.
+
+In the bubble plot, blue bubbles represent best inaugural speeches, red bubbles represent worst inaugural speeches and the size of the bubble represent the number of words. Based on the speeches selected, the verbs percentage of most of best inaugural speeches is between 0.29 and 0.32 and the total words is at the average(The purple rectangle). We can find that Trump's speech is in the rectangle and it may seems as a good speech according to this dimension. For thoes worst speeches, length and lack of information make them easily forgotten by the public.
+
+Another interesting finding is that the verbs percentage in formal speech tends to increase as time goes on, it may be related to the change of language habits.
+
+
+#4. Topic modelling
+```{r, fig.height = 10, fig.width = 10, message=FALSE, warning=FALSE}
+burnin <- 4000
+iter <- 2000
+thin <- 500
+seed <-list(2003,5,63,100001,765)
+nstart <- 5
+best <- TRUE
+
+#Number of topics
+k <- 10
+
+#Run LDA using Gibbs sampling
+ldaOut <-LDA(dtm, k, method="Gibbs", control=list(nstart=nstart, 
+                                                 seed = seed, best=best,
+                                                 burnin = burnin, iter = iter, 
+                                                 thin=thin))
+ldaOut.topics <- as.matrix(topics(ldaOut))
+table(c(1:k, ldaOut.topics))
+write.csv(ldaOut.topics,file=paste("../output/LDAGibbs",k,"DocsToTopics.csv"))
+
+ldaOut.terms <- as.matrix(terms(ldaOut,20))
+write.csv(ldaOut.terms,file=paste("../output/LDAGibbs",k,"TopicsToTerms.csv"))
+
+topicProbabilities <- as.data.frame(ldaOut@gamma)
+topicProbabilities$files <- Corpusdf$President
+colnames(topicProbabilities) = c("state stability","topic 2","topic 3","social welfare","topic 5","economy","topic 7","topic 8","diplomacy","topic 10","files")
+write.csv(topicProbabilities,file=paste("../output/LDAGibbs",k,"TopicProbabilities.csv"))
+
+topicProbabilities.m <- melt(topicProbabilities)
+topicProbabilities.m <- ddply(topicProbabilities.m, .(variable), transform, rescale = rescale(value))
+topicProbabilities.m$index <- seq(from = 1789, to = 2017, by = 4)
+
+topicProbabilitiesheat <- ggplot(topicProbabilities.m, aes(x=variable, y=reorder(files,index))) + geom_tile(aes(fill = rescale),colour = "white") + scale_fill_gradient(low = "white",high = "steelblue") + labs(x = "Topic", y = "President")
+topicProbabilitiesheat
+```
+
+
+When 10 topics were assignend to each inaugural speeches. I found inaugural speeches' topics changes conform to the development story of America. From <span style="color:red">"state stability"</span> to <span style="color:red">"economy"</span> then to <span style="color:red">"social wefare"</span> and <span style="color:red">"diplomacy"</span>. It's a typical and necessary road for most of great countries in the world. The trend is the inevitable choice of historical development.
+
+
+```{r, fig.height = 5, fig.width = 8, message=FALSE, warning=FALSE}
+burnin <- 4000
+iter <- 2000
+thin <- 500
+seed <-list(2003,5,63,100001,765)
+nstart <- 5
+best <- TRUE
+
+#Number of topics
+k <- 15
+
+#Run LDA using Gibbs sampling
+ldaOut <-LDA(dtm, k, method="Gibbs", control=list(nstart=nstart, 
+                                                 seed = seed, best=best,
+                                                 burnin = burnin, iter = iter, 
+                                                 thin=thin))
+ldaOut.topics <- as.matrix(topics(ldaOut))
+table(c(1:k, ldaOut.topics))
+write.csv(ldaOut.topics,file=paste("../output/LDAGibbs",k,"DocsToTopics.csv"))
+
+ldaOut.terms <- as.matrix(terms(ldaOut,20))
+write.csv(ldaOut.terms,file=paste("../output/LDAGibbs",k,"TopicsToTerms.csv"))
+
+ldaOut.topicsdf <- as.data.frame(ldaOut.topics)
+ldaOut.topicsdf$Year <- seq(from = 1789, to = 2017, by = 4)
+colnames(ldaOut.topicsdf) = c("topic", "Year")
+topicyear <- ggplot(ldaOut.topicsdf, aes(x=Year, y=topic, group=1)) + geom_line() + ggtitle("Topics change from 1789 to 2017 with 15 topics") + theme(plot.title = element_text(lineheight=.8, face="bold")) +  geom_hline(yintercept = 14, color ="blue", linetype="dashed") + geom_hline(yintercept = 3, color= "blue", linetype="dashed") + geom_hline(yintercept = 9, color= "blue", linetype="dashed")
+topicyear
+```
+
+
+When 10 topics were assignend to each inaugural speeches. The relation between inaugural speeches’ topics and time is more obvious. As the first public speech for new president, inaugural speeches from 1789 to 2017 is just like a concise history of America. They encourage people to fight, inspire people to create and remind people that the history of the country should be remembered.
+
+
